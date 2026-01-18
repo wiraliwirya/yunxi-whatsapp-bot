@@ -1,0 +1,42 @@
+{
+  "name": "yunxi-wangsaf",
+  "version": "1.0.0",
+  "description": "yunxi-assistant-wangsaf",
+  "main": "index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0 <=20.x"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "ntar gw masukin sendiri"
+  },
+  "keywords": [
+    "whatsapp-bot",
+    "baileys",
+    "wangsaf",
+    "yunxi",
+    "nodejs",
+  ],
+  "author": "liwirya",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/liwirya/yunxi/issues"
+  },
+  "homepage": "https://github.com/liwirya/yunxi#readme",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "form-data": "^4.0.4",
+    "node-fetch": "^3.3.2",
+    "pino": "^9.6.0",
+    "qrcode-terminal": "^0.12.0",
+    "qs": "^6.14.0"
+  }
+}
