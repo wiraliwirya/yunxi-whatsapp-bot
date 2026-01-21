@@ -1,146 +1,333 @@
-import { createRequire } from 'module';
-import qrcode from 'qrcode-terminal';
-import pkg from '@whiskeysockets/baileys';
-const { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = pkg;
+import "./settings/config.js";
+import {
+  makeWASocket,
+  useMultiFileAuthState,
+  jidDecode,
+  DisconnectReason,
+  downloadContentFromMessage,
+  makeCacheableSignalKeyStore
+} from "@whiskeysockets/baileys";
+import { Boom } from "@hapi/boom";
+import readline from "readline";
+import pino from "pino";
+import chalk from "chalk";
+import fs from "fs-extra";
+import NodeCache from "node-cache";
+import axios from "axios";
+import * as jimp from "jimp";
+import { spawn } from "child_process";
+import { fileURLToPath, pathToFileURL } from "url";
+import path from "path";
+import cfonts from "cfonts";
 
-import { Boom } from '@hapi/boom';
-import P from 'pino';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { pathToFileURL } from 'url';
-import { watchFile, unwatchFile } from 'fs';
-
-import globalConfig from './settings/config.js';
-import colors from './settings/colors.js'; 
-import { setupMessageHandler } from './handler.js';
-import { Connection } from './lib/connection/connect.js';
-
-let currentSock = null;
-
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-console.log(`\n${colors.bright}${colors.cyan}=====================================${colors.reset}`);
-console.log(`${colors.bright}${colors.cyan}         BOT WHATSAPP DIMULAI        ${colors.reset}`);
-console.log(`${colors.bright}${colors.cyan}=====================================${colors.reset}\n`);
-
-const PLUGINS_DIR = path.resolve(__dirname, "./command");
-
-const pluginsLoader = async (directory) => {
-    let plugins = [];
-    const files = fs.readdirSync(directory);
-    for (const file of files) {
-        const filePath = path.join(directory, file);
-        if (filePath.endsWith(".js")) {
-            try {
-                const fileUrl = pathToFileURL(filePath).href;
-                delete require.cache[fileUrl]; 
-                const pluginModule = await import(fileUrl + `?update=${Date.now()}`);
-                const pluginHandler = pluginModule.default;
-
-                if (typeof pluginHandler === 'function' && pluginHandler.command) {
-                    plugins.push(pluginHandler);
-                } else {
-                    console.log(`${colors.error}[PLUGIN ERROR] Plugin ${filePath} tidak memiliki struktur yang diharapkan (export default function dengan properti 'command').${colors.reset}`);
-                }
-            } catch (error) {
-                console.log(`${colors.error}[PLUGIN ERROR] Gagal memuat plugin ${filePath}:`, error, colors.reset);
-            }
-        }
-    }
-    return plugins;
+import pkg from "file-type";
+const fileType = {
+    fromBuffer: pkg.fileTypeFromBuffer || pkg.fromBuffer || (typeof pkg === 'function' ? pkg : null)
 };
 
-const userLimits = {};
+import { smsg } from "./source/myfunc.js";
 
-function checkAndApplyLimit(userJid) {
-    if (!globalConfig.limit.enable) return true;
+global.mode = true;           
+global.sessionName = "session"; 
+const msgRetryCounterCache = new NodeCache();
 
-    const now = Date.now();
-    let userData = userLimits[userJid];
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const caserelog = path.resolve(__dirname, "./source/message.js");
 
-    if (!userData) {
-        userData = { count: 0, lastUsed: now };
-        userLimits[userJid] = userData;
+const color = {
+    primary: chalk.cyan.bold,
+    secondary: chalk.gray,
+    success: chalk.greenBright,
+    error: chalk.redBright.bold,
+    warn: chalk.yellowBright,
+    info: chalk.blueBright
+};
+
+const timestamp = () => {
+    const now = new Date();
+    return `[${now.getHours().toString().padStart(2,0)}:${now.getMinutes().toString().padStart(2,0)}:${now.getSeconds().toString().padStart(2,0)}]`;
+};
+
+const log = {
+    sys: (msg) => console.log(`${color.secondary(timestamp())} ${color.primary('SYSTEM')}   │ ${msg}`),
+    info: (msg) => console.log(`${color.secondary(timestamp())} ${color.info('INFO')}     │ ${msg}`),
+    success: (msg) => console.log(`${color.secondary(timestamp())} ${color.success('SUCCESS')}  │ ${msg}`),
+    warn: (msg) => console.log(`${color.secondary(timestamp())} ${color.warn('WARNING')}  │ ${msg}`),
+    error: (msg) => console.log(`${color.secondary(timestamp())} ${color.error('ERROR')}    │ ${msg}`),
+    box: (title, details) => {
+        console.log(color.secondary(`┌── [ ${title} ] ──────────────────────────────`));
+        details.forEach(d => console.log(color.secondary(`│`) + `  ${d}`));
+        console.log(color.secondary(`└──────────────────────────────────────────────────`));
     }
+};
 
-    if (now - userData.lastUsed > globalConfig.limit.resetIntervalMs) {
-        userData.count = 0;
-        userData.lastUsed = now;
-    }
-
-    if (userData.count >= globalConfig.limit.maxDaily) {
+const SecurityGuard = {
+    validatePayload: (m) => {
+        const payloadSize = JSON.stringify(m).length;
+        if (payloadSize > 50000 && !m.message.imageMessage && !m.message.videoMessage) {
+            log.warn(`Dropped oversize payload: ${payloadSize} bytes`);
+            return false;
+        }
+        return true;
+    },
+    
+    spamMap: new Map(),
+    isSpam: (sender) => {
+        const now = Date.now();
+        const lastMsg = SecurityGuard.spamMap.get(sender);
+        if (lastMsg && now - lastMsg < 1000) { 
+            return true;
+        }
+        SecurityGuard.spamMap.set(sender, now);
         return false;
     }
-
-    userData.count++;
-    userData.lastUsed = now;
-    return true;
-}
-
-async function connectToWhatsApp() {
-    if (currentSock) {
-        try {
-            if (currentSock && typeof currentSock.end === 'function') {
-                await currentSock.end();
-            }
-        } catch (error) {
-            console.log(`${colors.error}[RESTART ERROR] Gagal menutup koneksi sebelumnya:${colors.reset}`, error);
-        }
-        currentSock = null;
-    }
-
-    const { state, saveCreds } = await useMultiFileAuthState('sesi');
-
-    const sock = makeWASocket({
-        logger: P({ level: 'silent' }),
-        printQRInTerminal: true,
-        auth: state,
-        browser: Browsers.macOS('Desktop'),
-        msgRetryCounterMap: {},
-        retryRequestDelayMs: 250,
-        markOnlineOnConnect: false,
-        emitOwnEvents: true,
-        patchMessageBeforeSending: (msg) => {
-            if (msg.contextInfo) delete msg.contextInfo.mentionedJid;
-            return msg;
-        },
-        appStateSyncInitialTimeoutMs: 10000 
-    });
-
-    currentSock = sock;
-
-    const loadedPlugins = await pluginsLoader(PLUGINS_DIR);
-    console.log(`${colors.info}[PLUGIN LOADER] Memuat ${loadedPlugins.length} plugin dari ${PLUGINS_DIR}${colors.reset}`);
-
-    setupMessageHandler(sock, loadedPlugins, globalConfig, userLimits, checkAndApplyLimit);
-    Connection(sock, connectToWhatsApp, saveCreds);
-}
-
-let isWatchingPlugins = false;
-
-const startPluginWatcher = () => {
-    if (isWatchingPlugins) return;
-
-    const files = fs.readdirSync(PLUGINS_DIR);
-    console.log(`${colors.info}[WATCHER] Memulai pengawasan ${files.length} file plugin di ${PLUGINS_DIR}${colors.reset}`);
-
-    files.forEach(file => {
-        if (file.endsWith(".js")) {
-            const filePath = path.join(PLUGINS_DIR, file);
-            watchFile(filePath, () => {
-                unwatchFile(filePath);
-                console.log(`${colors.warning}[RELOAD] Perubahan terdeteksi pada plugin: ${file}${colors.reset}`);
-                console.log(`${colors.info}[RELOAD] Melakukan restart bot...${colors.reset}`);
-                connectToWhatsApp();
-            });
-        }
-    });
-    isWatchingPlugins = true;
 };
 
-connectToWhatsApp();
-startPluginWatcher();
+let rl = null;
+const getRl = () => {
+  if (!rl || rl.closed) {
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  }
+  return rl;
+};
+const question = (text) => new Promise((resolve) => getRl().question(text, resolve));
+
+const getBuffer = async (url, options = {}) => {
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error("Invalid Protocol");
+    
+    const res = await axios({
+      method: "get",
+      url,
+      headers: { DNT: 1, "Upgrade-Insecure-Request": 1 },
+      responseType: "arraybuffer",
+      timeout: 10000, 
+      ...options
+    });
+    return res.data;
+  } catch (e) {
+    log.warn(`Download blocked/failed: ${e.message}`);
+    return Buffer.alloc(0);
+  }
+};
+
+let handleMessage; 
+async function relogfile() {
+  try {
+    const cacheBust = Date.now();
+    const modulePath = pathToFileURL(caserelog).href;
+    const module = await import(`${modulePath}?v=${cacheBust}`);
+    
+    if (typeof module.default === "function") {
+        handleMessage = module.default;
+        log.success("Handler 'message.js' loaded successfully.");
+    }
+  } catch (err) {
+    log.error(`Failed to load message handler: ${err.message}`);
+  }
+}
+
+async function startServer() {
+    console.clear();
+    cfonts.say('SHIINA HIYORI', {
+        font: 'tiny', align: 'left', colors: ['cyan'], background: 'transparent',
+        letterSpacing: 1, lineHeight: 1, space: false
+    });
+    console.log(chalk.cyan("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
+    log.sys("Initializing secure environment...");
+    log.sys(`NodeJS: ${process.version} | Platform: ${process.platform}`);
+
+    process.on("unhandledRejection", (err) => log.error(`Unhandled Rejection: ${err}`));
+    process.on("uncaughtException", (err) => log.error(`Uncaught Exception: ${err}`));
+
+    await relogfile();
+    fs.watchFile(caserelog, () => {
+        log.info("Detected change in message.js. Reloading...");
+        relogfile();
+    });
+
+    const { state, saveCreds } = await useMultiFileAuthState(`./${sessionName}`);
+    
+    const conn = makeWASocket({
+        printQRInTerminal: false,
+        logger: pino({ level: "silent" }),
+        browser: ["Mac OS", "Chrome", "121.0.0"], 
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
+        },
+        msgRetryCounterCache,
+        connectTimeoutMs: 60000,
+        emitOwnEvents: true,
+        fireInitQueries: true,
+        generateHighQualityLinkPreview: true,
+        syncFullHistory: true,
+        markOnlineOnConnect: true
+    });
+
+    global.conn = conn;
+
+    if (!conn.authState.creds.registered) {
+        console.log("");
+        log.box("AUTHENTICATION REQUIRED", [
+            "Session not found.",
+            "Please provide WhatsApp Number to generate Pairing Code."
+        ]);
+        
+        const phoneNumber = await question(color.primary("   ➤  Enter Number: "));
+        const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
+        
+        setTimeout(async () => {
+            let code = await conn.requestPairingCode(cleanNumber);
+            code = code?.match(/.{1,4}/g)?.join("-") || code;
+            log.box("PAIRING CODE GENERATED", [
+                `User: ${cleanNumber}`,
+                `Code: ${chalk.bold.greenBright(code)}`,
+                "Action: Enter this code on your device."
+            ]);
+        }, 3000);
+    }
+
+    conn.ev.on("connection.update", async (update) => {
+        const { connection, lastDisconnect } = update;
+        
+        if (connection === "close") {
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            const reasonDesc = DisconnectReason[reason] || "Unknown";
+            
+            log.error(`Connection Lost: ${reasonDesc} (${reason})`);
+
+            if (reason === DisconnectReason.loggedOut || reason === DisconnectReason.badSession) {
+                log.error("CRITICAL: Session file is corrupt. Please delete 'session' folder.");
+                process.exit(1);
+            } else {
+                log.info("Attempting automatic reconnection...");
+                startServer();
+            }
+        } else if (connection === "open") {
+            console.log("");
+            log.box("SYSTEM ONLINE", [
+                `User ID: ${conn.user.id.split(':')[0]}`,
+                `Mode: ${global.mode ? 'Public' : 'Self'}`,
+                `Security: Active`
+            ]);
+        }
+    });
+
+    conn.ev.on("creds.update", saveCreds);
+
+    conn.ev.on("messages.upsert", async (chatUpdate) => {
+        try {
+            let m = chatUpdate.messages[0];
+            if (!m?.message) return;
+
+            m.message = Object.keys(m.message)[0] === "ephemeralMessage" 
+                ? m.message.ephemeralMessage.message 
+                : m.message;
+
+            if (m.key.remoteJid === "status@broadcast") return;
+            if (!conn.public && !m.key.fromMe && chatUpdate.type === "notify") return;
+            
+            if (!SecurityGuard.validatePayload(m)) return;
+
+            m = smsg(conn, m); 
+            if (handleMessage) await handleMessage(conn, m, chatUpdate);
+
+        } catch (err) {
+            if (!err.message?.includes("Bad MAC")) {
+                log.error(`Stream Error: ${err.message}`);
+            }
+        }
+    });
+
+    conn.decodeJid = (jid) => {
+        if (!jid) return jid;
+        if (/:\d+@/gi.test(jid)) {
+            const decode = jidDecode(jid) || {};
+            return (decode.user && decode.server && decode.user + "@" + decode.server) || jid;
+        }
+        return jid;
+    };
+    
+    conn.public = global.mode;
+    conn.serializeM = (m) => smsg(conn, m);
+
+    conn.downloadAndSaveMediaMessage = async (message, filename, attachExtension = true) => {
+        try {
+            const quoted = message.msg ? message.msg : message;
+            const mime = (message.msg || message).mimetype || "";
+            const messageType = message.mtype ? message.mtype.replace(/Message/gi, "") : mime.split("/")[0];
+            
+            const stream = await downloadContentFromMessage(quoted, messageType);
+            let buffer = Buffer.from([]);
+            for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+
+            const type = await fileType.fromBuffer(buffer);
+            const ext = type?.ext || "bin";
+            
+            const safeName = filename ? path.basename(filename) : `file_${Date.now()}`;
+            const finalName = attachExtension ? `${safeName}.${ext}` : safeName;
+
+            await fs.writeFile(finalName, buffer);
+            return finalName;
+        } catch (err) {
+            log.error(`File Write Error: ${err.message}`);
+            return null;
+        }
+    };
+
+    conn.sendText = (jid, teks, quoted = "", options = {}) => 
+        conn.sendMessage(jid, { text: teks, ...options }, { quoted, ...options });
+
+    conn.sendImage = async (jid, path, caption = "", quoted = "", options = {}) => {
+        const buffer = Buffer.isBuffer(path) ? path : /^https?:\/\//.test(path) ? await getBuffer(path) : fs.existsSync(path) ? fs.readFileSync(path) : Buffer.alloc(0);
+        return await conn.sendMessage(jid, { image: buffer, caption, ...options }, { quoted });
+    };
+
+    const resize = async (imagePathOrUrl, width, height) => {
+        const buffer = await getBuffer(imagePathOrUrl); 
+        const read = await jimp.read(buffer); 
+        return await read.resize(width, height).getBufferAsync(jimp.MIME_JPEG);
+    };
+
+    conn.sendButtonRelay = async (jid, text, buttons, quoted) => {
+        const thumbnail = await resize("https://files.catbox.moe/prewfa.jpg", 300, 300); 
+        const message = {
+            viewOnceMessage: {
+                message: {
+                    interactiveMessage: {
+                        header: {
+                            locationMessage: { degreesLatitude: 0, degreesLongitude: 0, name: global.namebotz, address: global.nameown, jpegThumbnail: thumbnail },
+                            hasMediaAttachment: true
+                        },
+                        body: { text },
+                        nativeFlowMessage: {
+                            buttons,
+                            messageParamsJson: JSON.stringify({ limited_time_offer: { expiration_time: Date.now() + 300000 } })
+                        }
+                    }
+                }
+            }
+        };
+        return await conn.relayMessage(jid, message, { quoted });
+    };
+
+    setInterval(() => {
+        const used = process.memoryUsage().heapUsed / 1024 / 1024;
+        if (used > 200) {
+            log.warn(`High Memory Usage: ${Math.round(used * 100) / 100} MB`);
+        }
+    }, 60000); 
+
+    return conn;
+}
+
+fs.watchFile(__filename, () => {
+  console.log(chalk.redBright(`\n[SYSTEM UPDATE] Core file changed. Restarting process...\n`));
+  fs.unwatchFile(__filename);
+  spawn(process.argv[0], [__filename], { stdio: "inherit" }).on('exit', () => process.exit());
+});
+
+startServer();

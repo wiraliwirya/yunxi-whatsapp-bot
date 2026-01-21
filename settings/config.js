@@ -1,65 +1,45 @@
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { watchFile, unwatchFile, readFileSync } from 'fs';
+import fs from "fs";
+import chalk from "chalk";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+global.owner = [
+  "6283879152564", 
+  "6283879152564@s.whatsapp.net"
+]; 
 
-const apiKeys = {
-    openai: process.env.OPENAI_API_KEY || "sk-IsiKeyLuDisini",
-    removebg: process.env.REMOVEBG_API_KEY || "IsiKeyLuDisini",
+global.mode = "public";
+global.nameown = "Liwirya"; 
+global.namebotz = "Yunxi Assistant";  
+global.packname = "Stiker by Yunxi Assistant";  
+global.author = "Punya Kesayangan Liwirya";
+global.footer = "© Yunxi Assistant";
+
+global.socials = {
+  youtube: "https://www.youtube.com/-",
+  github: "https://github.com/liwirya",
+  telegram: "https://t.me/liwirya",
+  whatsapp_channel: "https://whatsapp.com/channel/0029VadHRVCEQIagiLHVJV0d"
 };
 
-const globalConfig = {
-    owner: [
-        ["6283879152564", "liwirya", true],
-        ["6287840530026", "wildan", true] 
-    ],
+global.YouTube = global.socials.youtube;
+global.GitHub = global.socials.github;
+global.Telegram = global.socials.telegram;
+global.ChannelWA = global.socials.whatsapp_channel;
 
-    botName: "Yunxi - Assistant",
-    botFooter: "© 2026 Yunxi",
-    version: "1.0.0 Beta",
-    
-    sessionName: "yunxi-session", 
-    
-    sticker: {
-        packname: "Stiker by",
-        author: "Yunxi"
-    },
-    
-    prefix: [".", "/", "#", "!"], 
-    publicMode: true, 
-    
-    api: apiKeys,
-
-    limit: {
-        enable: true,
-        free: 20, 
-        premium: 9999, 
-        resetIntervalMs: 24 * 60 * 60 * 1000, 
-        message: "[ ! ] Limit harian habis. Limit lu: %limit% hit. Riset dalam %remainingTime%."
-    },
-
-    mess: {
-        success: "[ OK ] Done, berhasil ya senpai.",
-        admin: "[ ! ] Fitur ini khusus Admin Grup, minggir dulu.",
-        botAdmin: "[ ! ] Jadiin bot Admin dulu baru bisa jalan.",
-        owner: "[ ! ] Access Denied. Lu bukan Owner gue.",
-        group: "[ ! ] Fitur ini cuma jalan di dalam Grup.",
-        private: "[ ! ] Pake fitur ini di Private Chat (PC) aja.",
-        premium: "[ $ ] Khusus user Premium. Upgrade dulu bro.",
-        wait: "[ ... ] Sabar, lagi dimasak...",
-        error: "[ X ] Ada error sistem. Coba lagi nanti.",
-        endLimit: "[ ! ] Limit harian lu abis. Balik lagi besok atau beli premium."
-    }
+global.mess = {
+  wait: "_Sabar elah, lagi gw proses nih..._",
+  success: "_Udah kelar noh. Jangan lupa bilang makasih!_",  
+  group: "*Woi Kocak!*\nFitur ini cuma bisa dipake di *Grup*. Ngapain lu coba di japri?",
+  admin: "*Sadar Diri*\nLu bukan *Admin*, gausah nyuruh-nyuruh gw. Minimal jadi admin dulu lah.",
+  owner: "*Lu Siapa?*\nFitur ini khusus Owner gw. Lu minggir dulu.",
+  botadmin: "*Gw Bukan Admin*\nJadiin gw *Admin* dulu lah woi, baru bisa kerja!",
+  
+  error: "_Dahlah error, pusing gw. Coba lagi ntar ya._"
 };
 
-global.conf = globalConfig;
+let file = import.meta.url.substring(7);
 
-let file = __filename;
-watchFile(file, () => {
-    unwatchFile(file);
-    console.log(`\n\n >> [ UPDATE ] File config.js berubah. Silakan restart bot jika perubahan tidak ngefek (ESM limitation).\n`);
+fs.watchFile(file, () => {
+  fs.unwatchFile(file);
+  console.log(chalk.greenBright(`🔄 Config ${path.basename(file)} ke-update otomatis!`));
+  import(`${file}?update=${Date.now()}`);
 });
-
-export default globalConfig;
