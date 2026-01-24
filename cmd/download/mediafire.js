@@ -1,6 +1,5 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { URL } from 'url';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,221 +7,181 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-class MediaFireDownloader {
-  constructor() {
-    this.client = axios.create({
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-      },
-      timeout: 30000
-    });
-  }
+const MAX_SIZE_MB = 150; 
 
-  async extractDownloadUrl(mediafireUrl) {
-    try {
-      const response = await this.client.get(mediafireUrl);
-      const $ = cheerio.load(response.data);
-      
-      let downloadUrl = $('#downloadButton').attr('href') || 
-                       $('a.input.popsok').attr('href') || 
-                       $('.download_link a.input').attr('href');
+const getUserAgent = () => {
+    const os = ['Windows NT 10.0; Win64; x64', 'Macintosh; Intel Mac OS X 10_15_7', 'X11; Linux x86_64'];
+    return `Mozilla/5.0 (${os[Math.floor(Math.random() * os.length)]}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36`;
+};
 
-      if (!downloadUrl) return null;
+const formatSize = (bytes) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
-      if (downloadUrl.startsWith('//')) {
-        downloadUrl = 'https:' + downloadUrl;
-      }
-
-      const fileName = this._extractFilename($, downloadUrl);
-      const fileSizeRaw = this._extractFilesize($('#downloadButton') || $('a.input'));
-      
-      return {
-        filename: fileName || 'mediafire_file',
-        url: downloadUrl,
-        mimetype: this._getMimetype(fileName),
-        size: fileSizeRaw,
-        size_bytes: this._parseSizeToBytes(fileSizeRaw)
-      };
-    } catch (error) {
-      console.error('[MediaFire Scrape Error]:', error.message);
-      return null;
+class MediaFireEngine {
+    constructor() {
+        this.headers = {
+            'User-Agent': getUserAgent(),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Upgrade-Insecure-Requests': '1',
+            'Connection': 'keep-alive'
+        };
     }
-  }
 
-  _extractFilename($, downloadUrl) {
-    try {
-      let name = $('meta[property="og:title"]').attr('content');
-      if (name) return name;
+    async getMetadata(url) {
+        try {
+            console.log(`[LOG] Fetching page: ${url}`);
+            const { data, status } = await axios.get(url, { headers: this.headers });
 
-      const title = $('title').text();
-      if (title) return title.split(' - ')[0].trim();
+            if (status !== 200) throw new Error('[HTTP] Gagal akses halaman MediaFire.');
 
-      if (downloadUrl) {
-        const parts = new URL(downloadUrl).pathname.split('/');
-        return decodeURIComponent(parts[parts.length - 1]);
-      }
-    } catch (e) {
-      return null;
+            const $ = cheerio.load(data);
+            
+            let link = $('#downloadButton').attr('href') || 
+                       $('a[aria-label="Download file"]').attr('href') ||
+                       $('a.input').attr('href');
+
+            if (!link) {
+                const script = $('body').html();
+                const match = script.match(/kNO\s*=\s*"([^"]+)"/);
+                if (match) link = match[1];
+            }
+
+            if (!link) throw new Error('[PARSE] Link download tidak ditemukan (Mungkin folder atau proteksi password).');
+
+            if (link.startsWith('//')) link = 'https:' + link;
+
+            let name = $('div.filename').text().trim() || 
+                       $('div.dl-btn-label').attr('title') || 
+                       link.split('/').pop();
+            
+            name = decodeURIComponent(name).replace(/\+/g, ' ');
+
+            let size = $('a#downloadButton').text().match(/\((.*?)\)/)?.[1] || 
+                       $('.details li:contains("File size") span').text() || 
+                       'Unknown';
+
+            let type = $('.details li:contains("File type") span').text() || 
+                       path.extname(name).replace('.', '').toUpperCase();
+
+            return { name, size, type, link };
+
+        } catch (e) {
+            throw new Error(e.message);
+        }
     }
-    return null;
-  }
 
-  _extractFilesize(element) {
-    try {
-      const text = element.text();
-      const match = text.match(/(([0-9.]+s*[KMGT]?B))/i);
-      return match ? match[1] : 'Unknown';
-    } catch (e) {
-      return 'Unknown';
+    async download(url, savePath) {
+        const writer = fs.createWriteStream(savePath);
+
+        const response = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream',
+            headers: this.headers,
+            timeout: 60000 
+        });
+
+        const totalSize = response.headers['content-length'];
+        
+        if (totalSize) {
+            const sizeMB = parseInt(totalSize) / (1024 * 1024);
+            if (sizeMB > MAX_SIZE_MB) {
+                writer.close();
+                fs.unlinkSync(savePath);
+                throw new Error(`[LIMIT] File terlalu besar (${sizeMB.toFixed(2)} MB). Max ${MAX_SIZE_MB}MB.`);
+            }
+        }
+
+        const mime = response.headers['content-type'] || 'application/octet-stream';
+
+        response.data.pipe(writer);
+
+        return new Promise((resolve, reject) => {
+            writer.on('finish', () => resolve({ size: totalSize, mime }));
+            writer.on('error', (err) => {
+                writer.close();
+                if(fs.existsSync(savePath)) fs.unlinkSync(savePath);
+                reject(err);
+            });
+        });
     }
-  }
-
-  _parseSizeToBytes(sizeStr) {
-    if (!sizeStr || sizeStr === 'Unknown') return 0;
-    
-    const units = { 
-      'B': 1, 
-      'KB': 1024, 
-      'MB': 1024 * 1024, 
-      'GB': 1024 * 1024 * 1024 
-    };
-    
-    const regex = /([0-9.]+)s*([KMGT]?B)/i;
-    const match = sizeStr.match(regex);
-    
-    if (match) {
-      const val = parseFloat(match[1]);
-      const unit = match[2].toUpperCase();
-      return val * (units[unit] || 1);
-    }
-    return 0;
-  }
-
-  _getMimetype(filename) {
-    if (!filename) return 'application/octet-stream';
-    
-    const ext = filename.split('.').pop().toLowerCase();
-    const mimetypes = {
-      'zip': 'application/zip',
-      'rar': 'application/x-rar-compressed',
-      '7z': 'application/x-7z-compressed',
-      'pdf': 'application/pdf',
-      'doc': 'application/msword',
-      'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'xls': 'application/vnd.ms-excel',
-      'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'ppt': 'application/vnd.ms-powerpoint',
-      'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'txt': 'text/plain',
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'png': 'image/png',
-      'mp4': 'video/mp4',
-      'mp3': 'audio/mpeg',
-      'apk': 'application/vnd.android.package-archive',
-      'exe': 'application/x-msdownload',
-      'json': 'application/json'
-    };
-    
-    return mimetypes[ext] || 'application/octet-stream';
-  }
-
-  async downloadFile(url, outputPath) {
-    const writer = fs.createWriteStream(outputPath);
-    const response = await axios({
-      url,
-      method: 'GET',
-      responseType: 'stream',
-      headers: this.client.defaults.headers
-    });
-
-    response.data.pipe(writer);
-
-    return new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
-  }
 }
 
 let handler = async (m, { conn, args, q, command, reply }) => {
-  const inputUrl = q || (args && args.length > 0 ? args.join(' ') : '');
+    const inputUrl = q || (args && args.length > 0 ? args.join(' ') : '');
 
-  if (!inputUrl) {
-    return reply(`Harap sertakan link MediaFire.
-Contoh: ${command} https://www.mediafire.com/file/xxxx/file.zip/file`);
-  }
+    if (!inputUrl) {
+        return reply(`
+[ ! ] PARAMETER KOSONG
+Gunakan format:
+>>> ${command} <link_mediafire>
 
-  if (!/mediafire.com/.test(inputUrl)) {
-    return reply('Link tidak valid. Pastikan domainnya mediafire.com.');
-  }
-
-  reply('Sedang proses download file...');
-
-  const mf = new MediaFireDownloader();
-  const tmpDir = path.resolve('./tmp');
-  
-  if (!fs.existsSync(tmpDir)) {
-    fs.mkdirSync(tmpDir, { recursive: true });
-  }
-
-  const tmpFile = path.join(tmpDir, `mf_${Date.now()}_${Math.floor(Math.random() * 1000)}.tmp`);
-
-  try {
-    const data = await mf.extractDownloadUrl(inputUrl);
-
-    if (!data) {
-      throw new Error('Gagal mengambil metadata. File mungkin terhapus atau diprivate.');
+Contoh:
+>>> ${command} https://www.mediafire.com/file/xxxx/file.zip/file
+`);
     }
 
-    const MAX_SIZE_MB = 150;
-    const sizeMB = data.size_bytes / (1024 * 1024);
-    
-    if (sizeMB > MAX_SIZE_MB) {
-      throw new Error(`File terlalu besar (${data.size}). Batas maksimal bot adalah ${MAX_SIZE_MB}MB.`);
+    const regex = /mediafire\.com\/file\//i;
+    if (!regex.test(inputUrl)) {
+        return reply('[ ! ] URL Invalid. Pastikan link file (bukan folder).');
     }
 
-    await mf.downloadFile(data.url, tmpFile);
+    reply('[ ... ] Sedang Memproses, Harap Tunggu...');
 
-    const safeFilename = data.filename.replace(/[^a-zA-Z0-9.-_]/g, '_');
-    const finalPath = path.join(tmpDir, safeFilename);
-    
-    fs.renameSync(tmpFile, finalPath);
+    const engine = new MediaFireEngine();
+    const tmpDir = path.resolve('./tmp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
-    const caption = `*MediaFire Downloader*
-` +
-                    `──────────────────
-` +
-                    `📄 *Nama:* ${data.filename}
-` +
-                    `📦 *Ukuran:* ${data.size}
-` +
-                    `🧩 *Tipe:* ${data.mimetype}
-` +
-                    `──────────────────`;
+    const uniqueId = `mf_${Date.now()}`;
+    const tempPath = path.join(tmpDir, `${uniqueId}.tmp`);
 
-    await conn.sendMessage(m.chat, {
-      document: fs.readFileSync(finalPath),
-      fileName: data.filename,
-      mimetype: data.mimetype,
-      caption: caption
-    }, { quoted: m });
+    try {
+        const meta = await engine.getMetadata(inputUrl);
 
-    if (fs.existsSync(finalPath)) {
-      fs.unlinkSync(finalPath);
+        // reply(`[ ... ] Downloading: ${meta.name} (${meta.size})...`);
+
+        const fileInfo = await engine.download(meta.link, tempPath);
+
+        const finalSize = fileInfo.size ? formatSize(fileInfo.size) : meta.size;
+
+        const caption = 
+`[ MEDIAFIRE DOWNLOADER ]
+========================
+[>] Name : ${meta.name}
+[>] Size : ${finalSize}
+[>] Type : ${meta.type}
+========================
+[<] Credit By Yunxi Assistant`;
+
+        await conn.sendMessage(m.chat, {
+            document: fs.readFileSync(tempPath),
+            fileName: meta.name, 
+            mimetype: fileInfo.mime,
+            caption: caption
+        }, { quoted: m });
+
+    } catch (e) {
+        console.error('[ERR] MediaFire Handler:', e);
+        
+        let msg = '[ x ] System Error.';
+        if (e.message.includes('[LIMIT]')) msg = e.message;
+        if (e.message.includes('[PARSE]')) msg = '[ x ] Link rusak atau file diproteksi password.';
+        if (e.message.includes('404')) msg = '[ x ] File sudah dihapus dari MediaFire.';
+
+        reply(msg);
+
+    } finally {
+        if (fs.existsSync(tempPath)) {
+            fs.unlink(tempPath, (err) => {
+                if (err) console.error(`[WARN] Gagal hapus temp: ${tempPath}`);
+            });
+        }
     }
-
-  } catch (e) {
-    console.error('[MediaFire Handler]', e);
-    reply(`Gagal: ${e.message}`);
-  } finally {
-    if (fs.existsSync(tmpFile)) {
-      fs.unlinkSync(tmpFile);
-    }
-  }
 };
 
 handler.help = ['mediafire'];
