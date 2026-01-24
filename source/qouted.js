@@ -35,8 +35,8 @@ export const metaai = {
   },
   message: {
     contactMessage: {
-      displayName: 'Shiina AI / Auto-Response',
-      vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;Shiina AI;;;\nFN:Shiina AI\nitem1.TEL;waid=13135550002:+1 313 555 0002\nitem1.X-ABLabel:Main Server\nORG:Shiina Intelligence Division\nEND:VCARD`
+      displayName: 'Yunxi Assistant',
+      vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;Yunxi Assistant;;;\nFN:Yunxi Assistant\nitem1.TEL;waid=13135550002:+1 313 555 0002\nitem1.X-ABLabel:Main Server\nORG:Shiina Intelligence Division\nEND:VCARD`
     }
   }
 };
@@ -51,8 +51,8 @@ export const qloc = {
     locationMessage: {
       degreesLatitude: 35.685506,
       degreesLongitude: 139.752706,
-      name: 'Server Location: Encrypted',
-      address: 'Data Center, Sector 7', 
+      name: 'Yunxi Assistant',
+      address: '192.168.101.22', 
       url: 'https://pornhub.com'
     }
   }
@@ -66,11 +66,11 @@ export const qvideo = {
   },
   message: {
     videoMessage: {
-      title: 'ACCESS GRANTED',
+      title: 'Yunxi Assistant',
       h: 'System verified',
       seconds: 999999999, 
       gifPlayback: 'true',
-      caption: 'Execution started...',
+      caption: 'Menjalankan Bot...',
       jpegThumbnail: thumbBuffer
     }
   }
@@ -141,7 +141,7 @@ export const qproduct = {
                 retailerId: "GHOST_Protocol",
                 productImageCount: 1
             },
-            businessOwnerJid: "6281234567890@s.whatsapp.net"
+            businessOwnerJid: "6283879152564@s.whatsapp.net"
         }
     }
 };
@@ -155,7 +155,7 @@ export const qorder = {
     message: {
         orderMessage: {
             itemCount: 2025,
-            status: 1, // 1 = Pending, 2 = Completed
+            status: 1, 
             surface: 1,
             message: "Order ID: #X-9928-SYSTEM",
             orderTitle: "Database Injection Tool",
@@ -177,15 +177,15 @@ export const qevent = {
     message: {
         eventMessage: {
             isCanceled: false,
-            name: "Server Maintenance: Kernel Update",
-            description: "Upgrading core system to v.2.5. No downtime expected.",
+            name: "Yunxi Assistant",
+            description: "Update Version To v2.0.",
             location: {
                 degreesLatitude: 0,
                 degreesLongitude: 0,
-                name: "Cloud Server SG-1"
+                name: "Yunxi Assistant"
             },
             startTime: Date.now(),
-            endTime: Date.now() + (1000 * 60 * 60 * 2) // 2 jam dari sekarang
+            endTime: Date.now() + (1000 * 60 * 60 * 2) 
         }
     }
 };

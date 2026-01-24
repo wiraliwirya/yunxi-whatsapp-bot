@@ -693,7 +693,7 @@ if (body.startsWith('=>')) {
                     })
                     .toBuffer();
 
-                let intro = `Hi ${pushName} 🪸, aku Assiten Shiina Hiyori yang siap bantu kamu buat apa aja lewat chat ini.`;
+                let intro = `Hi ${pushName} 🪸, aku, Yunxi Assistant yang siap bantu kamu buat apa aja lewat chat ini.`;
 
                 let buttons = [{
                         buttonId: `${prefix}owner`,
@@ -720,7 +720,7 @@ if (body.startsWith('=>')) {
                         paramsJson: JSON.stringify({
                             title: "Hii",
                             sections: [{
-                                title: "Shiina Hiyori",
+                                title: "Yunxi Assistant",
                                 highlight_label: "label",
                                 rows: [{
                                         header: "header",
@@ -746,13 +746,13 @@ if (body.startsWith('=>')) {
                 const buttonMessage = {
                     document: bufferSmallRaw,
                     mimetype: "image/png",
-                    fileName: "Shiina Hiyori ",
+                    fileName: "Yunxi Assistant ",
                     fileLength: bufferSmallRaw.length,
                     pageCount: 1,
                     jpegThumbnail: bufferSmall,
 
                     caption: intro,
-                    footer: "© Shiina Hiyori\n",
+                    footer: "© Yunxi Assistant\n",
                     mentions: [m.sender],
                     buttons,
                     headerType: 6,

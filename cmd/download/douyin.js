@@ -248,6 +248,6 @@ Contoh:
 
 handler.help = ['douyin', 'tiktok'];
 handler.tags = ['downloader'];
-handler.command = /^(douyin|dy|tiktok|tt|ttdl)$/i;
+handler.command = /^(douyin|dy|tiktok)$/i;
 
 export default handler;
