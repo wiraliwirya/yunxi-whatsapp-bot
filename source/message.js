@@ -718,21 +718,19 @@ if (body.startsWith('=>')) {
                     nativeFlowInfo: {
                         name: "single_select",
                         paramsJson: JSON.stringify({
-                            title: "Hii",
+                            title: "𝙻𝚒𝚜𝚝 𝙼𝚎𝚗𝚞",
                             sections: [{
-                                title: "Yunxi Assistant",
-                                highlight_label: "label",
+                                title: "𝙺𝚊𝚝𝚎𝚐𝚘𝚛𝚒 𝙼𝚎𝚗𝚞",
+                                highlight_label: "𝙿𝚘𝚙𝚞𝚕𝚎𝚛",
                                 rows: [{
-                                        header: "header",
-                                        title: "piw",
-                                        description: "hahh",
-                                        id: ".play"
+                                        title: "𝙳𝚒𝚐𝚒𝚏𝚕𝚊𝚣𝚣 𝙼𝚎𝚗𝚞",
+                                        description: "𝙼𝚎𝚗𝚊𝚖𝚙𝚒𝚕𝚔𝚊𝚗 𝙼𝚎𝚗𝚞 𝙳𝚒𝚐𝚒𝚏𝚕𝚊𝚣𝚣",
+                                        id: ".digimenu"
                                     },
                                     {
-                                        header: "header",
-                                        title: "title",
-                                        description: "",
-                                        id: ".play"
+                                        title: "𝙰𝚝𝚕𝚊𝚗𝚝𝚒𝚌 𝙼𝚎𝚗𝚞",
+                                        description: "𝙼𝚎𝚗𝚊𝚖𝚙𝚒𝚕𝚔𝚊𝚗 𝙼𝚎𝚗𝚞 𝙰𝚝𝚕𝚊𝚗𝚝𝚒𝚌 𝙿𝚎𝚍𝚒𝚊",
+                                        id: ".atlanmenu"
                                     },
                                 ],
                             }, ],
@@ -761,12 +759,12 @@ if (body.startsWith('=>')) {
                         isForwarded: true,
                         forwardedNewsletterMessageInfo: {
                             newsletterJid: `120363293494889157@newsletter`,
-                            newsletterName: `Shiina Shiyori`,
+                            newsletterName: `Yunxi Assistant`,
                             serverMessageId: -1
                         },
                         externalAdReply: {
                             showAdAttribution: true,
-                            title: "Whatsapp - Bot",
+                            title: "Yunxi - Assistant",
                             body: `Hi ${pushName}`,
                             mediaType: 1,
                             renderLargerThumbnail: true, 
@@ -783,7 +781,7 @@ if (body.startsWith('=>')) {
             }
             break;
 
-                    case "rt":
+        case "rt":
         case "ping": {
             const start = performance.now();
             
