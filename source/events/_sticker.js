@@ -1,7 +1,7 @@
 import "../../settings/config.js";
 import axios from 'axios';
 import sharp from 'sharp';
-import pkg from 'file-type'; 
+import { createRequire } from 'module'; 
 import {
     imageToWebp,
     videoToWebp,
@@ -9,7 +9,21 @@ import {
     writeExifVid
 } from './exif.js';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; 
+const require = createRequire(import.meta.url);
+const fileTypePkg = require('file-type'); 
+
+const detectFileType = async (buffer) => {
+    if (fileTypePkg.fileTypeFromBuffer) return await fileTypePkg.fileTypeFromBuffer(buffer);
+    if (fileTypePkg.fromBuffer) return await fileTypePkg.fromBuffer(buffer);
+    throw new Error('Versi file-type di server lu aneh, update dulu gih!');
+};
+
+const log = {
+    sys: (msg) => console.log(`[SYSTEM] ${msg}`),
+    err: (msg) => console.error(`[ERROR] ${msg}`)
+};
+
+const MAX_FILE_SIZE = 15 * 1024 * 1024; 
 
 export async function makeSticker(data, sock, m, options = {}) {
     try {
@@ -18,43 +32,32 @@ export async function makeSticker(data, sock, m, options = {}) {
 
         if (Buffer.isBuffer(data)) {
             buffer = data;
-        } else if (typeof data === 'string' && (data.startsWith('http') || data.startsWith('https'))) {
-            const url = new URL(data);
-            if (!['http:', 'https:'].includes(url.protocol)) {
-                throw new Error('Forbidden protocol: Only HTTP/HTTPS allowed');
-            }
-
+        } else if (typeof data === 'string' && data.startsWith('http')) {
             const response = await axios.get(data, { 
                 responseType: 'arraybuffer',
                 maxContentLength: MAX_FILE_SIZE,
-                maxBodyLength: MAX_FILE_SIZE,
-                timeout: 10000 
+                timeout: 15000 
             });
-            buffer = Buffer.from(response.data, "binary");
+            buffer = Buffer.from(response.data);
         } else if (typeof data === 'string' && data.startsWith('data:')) {
-            const base64Data = data.split(',')[1];
-            if (!base64Data) throw new Error('Invalid Base64 Data');
-            buffer = Buffer.from(base64Data, 'base64');
+            buffer = Buffer.from(data.split(',')[1], 'base64');
         } else {
-            throw new Error('Invalid input data type');
+            buffer = data;
         }
 
-        if (buffer.length > MAX_FILE_SIZE) {
-            throw new Error(`File too large. Max: ${MAX_FILE_SIZE} bytes`);
+        if (!buffer || buffer.length > MAX_FILE_SIZE) {
+            throw new Error(`File kegedean atau kosong! Max: ${MAX_FILE_SIZE / 1024 / 1024}MB`);
         }
 
-        const detectType = pkg.fileTypeFromBuffer || pkg.fromBuffer || (typeof pkg === 'function' ? pkg : null);
-
-        if (!detectType) {
-             throw new Error('Fungsi deteksi file-type tidak ditemukan pada library ini.');
-        }
-
-        const type = await detectType(buffer);
+        const type = await detectFileType(buffer);
+        
         mime = type ? type.mime : 'image/jpeg'; 
         
         let stickerBuffer;
-        const packname = options.packname || global.namebotz || 'Bot Sticker';
-        const author = options.author || global.nameown || 'Liwirya';
+        const packname = options.packname || global.namebotz || 'Sticker';
+        const author = options.author || global.nameown || 'Yunxi Assistant';
+
+        log.sys(`Sedang proses buat stiker untuk ${m.sender} (${mime})`);
 
         if (mime.includes('video') || mime.includes('gif')) {
             let webpVid = await videoToWebp(buffer);
@@ -65,7 +68,7 @@ export async function makeSticker(data, sock, m, options = {}) {
                     fit: 'contain', 
                     background: { r: 0, g: 0, b: 0, alpha: 0 } 
                 })
-                .webp({ quality: 85 }) 
+                .webp({ quality: 70 }) 
                 .toBuffer();
             
             stickerBuffer = await writeExifImg(webpImg, { packname, author });
@@ -75,22 +78,22 @@ export async function makeSticker(data, sock, m, options = {}) {
             sticker: stickerBuffer,
             contextInfo: {
                 externalAdReply: {
-                    title: global.namebotz || "Sticker Bot",
-                    body: "© Shiina Hiyori",
+                    title: packname,
+                    body: author,
                     mediaType: 1,
-                    renderLargerThumbnail: true, 
+                    renderLargerThumbnail: false,
                     thumbnailUrl: options.thumbnail || "https://files.catbox.moe/prewfa.jpg", 
-                    sourceUrl: global.YouTube || "https://pornhuh.com"
+                    sourceUrl: global.YouTube || "https://google.com"
                 }
             }
         }, { quoted: m });
 
     } catch (error) {
-        console.error("[STICKER SECURITY LOG]:", error);
-        m.reply(`⚠️ Gagal membuat stiker: ${error.message}`);
+        log.err(`Sticker Error: ${error.message}`);
+        m.reply(`⚠️ Gagal convert stiker: ${error.message}`);
     }
 }
 
-export async function makeStickerFromUrl(mediaUrl, sock, m, reply) {
-    return makeSticker(mediaUrl, sock, m);
+export async function makeStickerFromUrl(url, sock, m, options = {}) {
+    return makeSticker(url, sock, m, options);
 }
