@@ -19,8 +19,8 @@ export const qtext = {
   message: {
     newsletterAdminInviteMessage: {
       newsletterJid: '120363293494889157@newsletter',
-      newsletterName: 'Shiina Hiyori System',
-      caption: 'System Notification: Online',
+      newsletterName: 'Yunxi Assistant',
+      caption: 'Status: Online',
       inviteExpiration: Date.now() + 1814400000
     }
   }
